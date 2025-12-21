@@ -8,6 +8,8 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Ubuntu-orange)](https://www.linux.org/)
 [![Nginx](https://img.shields.io/badge/Nginx-High%20Performance-green)](https://nginx.org/)
 
+Rate-limits individual IPs along with abusive crawlers/scrapers using multiple ips using intelligent range detection.
+
 **Nginx Abuse Shield** is a robust, lightweight security suite designed to protect Ubuntu/Linux web servers from aggressive crawlers, scrapers, and DoS attacks. Unlike standard rate limiting which applies static rules, Abuse Shield uses **statistical analysis** of your access logs to detect patterns of abuse, automatically escalating restrictions from single IPs to `/24` subnets or even `/16` ranges when necessary.
 
 ---

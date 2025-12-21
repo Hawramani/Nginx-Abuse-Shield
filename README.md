@@ -12,6 +12,8 @@ Rate-limits individual IPs along with abusive crawlers/scrapers using multiple i
 
 **Nginx Abuse Shield** is a robust, lightweight security suite designed to protect Ubuntu/Linux web servers from aggressive crawlers, scrapers, and DoS attacks. Unlike standard rate limiting which applies static rules, Abuse Shield uses **statistical analysis** of your access logs to detect patterns of abuse, automatically escalating restrictions from single IPs to `/24` subnets or even `/16` ranges when necessary.
 
+**⚠️⚠️ Important: Add your server's IP, your personal IP, and any other relevant IPs, to the ignore list. See the section *Ignore List* below**
+
 ---
 
 ## 🚀 Key Features
@@ -95,6 +97,22 @@ location @ratelimit {
 
 
 4. **Enforcement:** Updates an Nginx map file and reloads the service only when new rules are added.
+
+## 🦧 Ignore List
+
+Update the `skip_ranges` array in `range_checker.sh` (default location: `/usr/local/bin/nginx-abuse-shield/range_checker.sh`) to skip ranges and IPs that should not be rate-limited, especially **the server's own IP** , and your own IP if you happen to make a lot of HTTP requests to the server, for example during development on a test site hosted on the server.
+
+ ```bash
+  9 # Known good ranges to completely ignore (Google, Bing, legitimate crawlers, etc.)
+ 10 skip_ranges=(
+ 11     "52.167" "57.141" "66.249" "85.208" "102.8" "103.197"
+ 12     
+ 13     # add more if needed
+ 14 )
+```
+
+
+
 
 ---
 

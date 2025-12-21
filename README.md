@@ -77,7 +77,6 @@ location / {
 }
 
 # Custom Error Page
-error_page 429 @ratelimit;
 location @ratelimit {
     return 429 "Too Many Requests: Rate limit exceeded.\n";
 }

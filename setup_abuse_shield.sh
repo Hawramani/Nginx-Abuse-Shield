@@ -190,46 +190,86 @@ while IFS= read -r prefix; do
     median=\${median:-1}
 
     # 3. DECISION LOGIC
-    awk -v median="\$median" \
-        -v t_ip="\$THRESH_IP" \
-        -v t_3="\$THRESH_3PART" \
-        -v t_2="\$THRESH_2PART" \
-        -v pre="\$prefix" '
+    awk -v median="$median" \
+        -v t_ip="$THRESH_IP" \
+        -v t_3="$THRESH_3PART" \
+        -v t_2="$THRESH_2PART" \
+        -v pre="$prefix" '
     BEGIN { OFS="=" }
     {
-        count = \$1
-        ip = \$2
+        count = $1
+        ip = $2
+
+        # --- NEW: Track RAW totals (Before Noise Filter) ---
+        # This catches "Low and Slow" attacks where 100 IPs do 5 reqs each
+        split(ip, a, ".")
+        s_key = a[1]"."a[2]"."a[3]
+        
+        raw_subnet_counts[s_key] += count
+        raw_prefix_total += count
+        # ---------------------------------------------------
+
+        # A. NOISE FILTER (Existing Logic)
         cutoff = median / 2
         if (cutoff < 10) cutoff = 10
 
         if (count >= cutoff) {
-            split(ip, a, ".")
-            s_key = a[1]"."a[2]"."a[3]
+            # This IP is statistically significant ("Abusive")
+            # We still track this to detect "A few bad apples" in a subnet
             subnet_counts[s_key] += count
             total_abusive_reqs += count
-            if (count >= t_ip) bad_ips[ip] = count
+
+            if (count >= t_ip) {
+                bad_ips[ip] = count
+            }
         }
     }
     END {
-        for (s_key in subnet_counts) {
-            if (subnet_counts[s_key] >= t_3) {
-                print "BAN_3PART", s_key, subnet_counts[s_key]
+        # B. DECISION LOGIC
+        
+        # Define Hard Limits (if aggregate requests exceed this, rate-limit range anyway)
+        hard_t_3 = t_3 * 2
+        hard_t_2 = t_2 * 2
+
+        # 1. Check specific 3-part ranges (/24)
+        for (s_key in raw_subnet_counts) {
+            
+            # Condition 1: High "Qualified" Abuse (Existing) OR
+            # Condition 2: High "Raw" Volume (New - catches distributed attacks)
+            if (subnet_counts[s_key] >= t_3 || raw_subnet_counts[s_key] >= hard_t_3) {
+                
+                # Use the higher of the two counts for the log message
+                final_count = (raw_subnet_counts[s_key] > subnet_counts[s_key]) ? raw_subnet_counts[s_key] : subnet_counts[s_key]
+                
+                print "BAN_3PART", s_key, final_count
+                
+                # Remove this traffic from the totals so we dont double-ban the /16
                 total_abusive_reqs -= subnet_counts[s_key]
+                raw_prefix_total   -= raw_subnet_counts[s_key]
             }
         }
-        if (total_abusive_reqs >= t_2) {
-             print "BAN_2PART", pre, total_abusive_reqs
+
+        # 2. Check whole /16
+        # Same logic: Check qualified abuse OR raw saturation
+        if (total_abusive_reqs >= t_2 || raw_prefix_total >= hard_t_2) {
+             # Use max count
+             final_count = (raw_prefix_total > total_abusive_reqs) ? raw_prefix_total : total_abusive_reqs
+             print "BAN_2PART", pre, final_count
         } else {
+            # 3. Check individual IPs
             for (ip in bad_ips) {
                 split(ip, a, ".")
                 s_key = a[1]"."a[2]"."a[3]
-                if (subnet_counts[s_key] < t_3) {
+
+                # Only ban the IP if its parent /24 wasn'"'"'t already banned
+                # We check raw_subnet_counts vs hard limit here too to be safe
+                if (subnet_counts[s_key] < t_3 && raw_subnet_counts[s_key] < hard_t_3) {
                     print "BAN_IP", ip, bad_ips[ip]
                 }
             }
         }
-    }' "\$TMP.counts" > "\$TMP.decisions"
-
+    }' "$TMP.counts" > "$TMP.decisions"
+    
     # 4. PROCESS DECISIONS
     while IFS="=" read -r type target count; do
         esc=\$(sed 's/\./\\\\./g' <<< "\$target")

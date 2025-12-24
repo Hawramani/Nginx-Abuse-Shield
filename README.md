@@ -1,3 +1,4 @@
+```text:disable-run
 # Nginx Abuse Shield
 
 **Surgical Traffic Control & Heuristic Rate Limiting for High-Traffic Servers.**
@@ -12,44 +13,75 @@ Rate-limits individual IPs along with abusive crawlers/scrapers using multiple i
 
 **Nginx Abuse Shield** is a robust, lightweight security suite designed to protect Ubuntu/Linux web servers from aggressive crawlers, scrapers, and DoS attacks. Unlike standard rate limiting which applies static rules, Abuse Shield uses **statistical analysis** of your access logs to detect patterns of abuse, automatically escalating restrictions from single IPs to `/24` subnets or even `/16` ranges when necessary.
 
-**⚠️⚠️ Important: Add your server's IP, your personal IP, and any other relevant IPs, to the ignore list. See the section *Ignore List* below**
+**⚠️⚠️ Important: Add your server's IP, your personal IP, and any other relevant IPs to the ignore list. See the section *Ignore List* below.**
 
 ---
 
 ## 🚀 Key Features
 
 * **🧠 Heuristic Range Detection:** Intelligent logic that analyzes traffic density across subnets. If a botnet rotates IPs within a range, Abuse Shield detects the concentration and throttles the whole block automatically.
+* **⚙️ Modular Configuration:** Fully configurable via a persistent configuration file (`abuse_shield.conf`). No need to edit scripts directly to change thresholds or log paths.
 * **⚡ Blazing Fast Analysis:** Powered by optimized `awk` scripts, it parses millions of log lines in seconds with negligible CPU overhead.
-* **🛡 "Soft" Banning Strategy:** Instead of blocking users with a harsh `403 Forbidden`, it integrates with Nginx's native `limit_req` module to serve `429 Too Many Requests`. This allows legitimate users to recover gracefully if they cross a threshold.
+* **🛡 "Soft" Banning Strategy:** Integrates with Nginx's native `limit_req` module to serve `429 Too Many Requests`. This allows legitimate users to recover gracefully if they cross a threshold.
 * **🔁 Rotation Aware:** Seamless integration with standard log rotation (`access.log` + `access.log.1`), ensuring no attack goes unnoticed during midnight rollovers.
-* **📂 Zero-Dependency:** Built entirely with Bash and standard Linux tools. No heavy databases, Python environments, or Lua scripts required.
-* **🤖 Set & Forget:** Installs a self-healing cron job that constantly monitors your traffic.
+* **🤖 Set & Forget:** Installs a self-healing cron job that constantly monitors your traffic. Supports seamless updates via the installer.
 
 ---
 
 ## 📦 Installation
 
-We provide an **interactive installer** (`setup_abuse_shield.sh`) that auto-detects your environment, generates the necessary scripts, and schedules the cron jobs.
+We provide a smart **modular installer** (`install.sh`) that installs the system, updates existing scripts without breaking configuration, and sets up cron jobs.
 
-1. **Clone the repository:**
-    ```bash
-    git clone [https://github.com/yourusername/nginx-abuse-shield.git](https://github.com/yourusername/nginx-abuse-shield.git)
-    cd nginx-abuse-shield
-    chmod +x setup_abuse_shield.sh
-    ```
+### 1. Clone the repository
+```bash
+git clone [https://github.com/yourusername/nginx-abuse-shield.git](https://github.com/yourusername/nginx-abuse-shield.git)
+cd nginx-abuse-shield
 
-2. **Run the installer:**
-    ```bash
-    sudo ./setup_abuse_shield.sh
-    ```
+```
 
-3. **Follow the prompts:** The script will ask for your log location and preferred time windows, then generate the configuration files.
+### 2. (Optional) Pre-configure
+
+If you wish to configure the system before installing (e.g., for automated deployments), edit the `abuse_shield.conf` file in the directory. The installer will detect it and use it as the template.
+
+```bash
+nano abuse_shield.conf
+
+```
+
+### 3. Run the Installer
+
+```bash
+sudo ./install.sh
+
+```
+
+*If you encounter a "required file not found" error, ensure the scripts have Unix line endings:*
+
+```bash
+sed -i 's/\r$//' *.sh *.conf
+sudo ./install.sh
+
+```
 
 ---
 
-## ⚙ Configuration Guidelines
+## ⚙ Configuration
 
-### 1. Required Log Format
+The system relies on a central configuration file located at:
+
+`/etc/nginx/abuse_shield/abuse_shield.conf`
+
+You can edit this file at any time to adjust sensitivity or paths.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `LOG_FILES` | Space-separated list of log files to analyze. | `/var/log/nginx/concise.log ...` |
+| `TIME_WINDOW` | How far back to analyze (in seconds). | `3000` (50 mins) |
+| `IP_PARTS` | Depth of IP analysis (2 = /16, 3 = /24). | `2` |
+| `THRESH_*` | Advanced tuning parameters for sensitivity logic. | See file for formulas. |
+
+### Required Log Format
+
 For maximum parsing speed, this tool requires a `concise` log format starting with a timestamp (`$msec`). Add this to your `nginx.conf`:
 
 ```nginx
@@ -57,18 +89,22 @@ log_format concise '$msec $remote_addr $is_bot $host $status';
 
 ```
 
-### 2. Nginx Integration
+*(Ensure your `access_log` directive uses this format)*
+
+---
+
+## 🔌 Nginx Integration
 
 The installer generates config files in `/etc/nginx/abuse_shield/`. You simply include them:
 
-**In your `http` block:**
+**1. In your `http` block:**
 
 ```nginx
 include /etc/nginx/abuse_shield/rate_limit_logic.conf;
 
 ```
 
-**In your `server` or `location` block:**
+**2. In your `server` or `location` block:**
 
 ```nginx
 location / {
@@ -87,7 +123,7 @@ location @ratelimit {
 
 ## 📊 How It Works
 
-1. **Snapshot:** Every 15 minutes (configurable), the system analyzes recent access logs.
+1. **Snapshot:** Every 15 minutes (configurable in Cron), the system analyzes recent access logs defined in `abuse_shield.conf`.
 2. **Statistical Baseline:** It calculates the median request count to identify statistical outliers vs. normal traffic.
 3. **Escalation Logic:**
 * **Level 1:** High traffic from one IP → **IP Throttle**.
@@ -97,29 +133,44 @@ location @ratelimit {
 
 4. **Enforcement:** Updates an Nginx map file and reloads the service only when new rules are added.
 
+---
+
 ## 🦧 Ignore List
 
-Update the `skip_ranges` array in `range_checker.sh` (default location: `/usr/local/bin/nginx-abuse-shield/range_checker.sh`) to skip ranges and IPs that should not be rate-limited, especially **the server's own IP** , and your own IP if you happen to make a lot of HTTP requests to the server, for example during development on a test site hosted on the server.
+To whitelist specific IPs (such as your own IP or the server's IP), edit the `range_checker.sh` file.
 
- ```bash
-  9 # Known good ranges to completely ignore (Google, Bing, legitimate crawlers, etc.)
- 10 skip_ranges=(
- 11     "52.167" "57.141" "66.249" "85.208" "102.8" "103.197"
- 12     
- 13     # add more if needed
- 14 )
+**Location:** `/usr/local/bin/nginx-abuse-shield/range_checker.sh`
+
+Update the `skip_ranges` array at the top of the file:
+
+```bash
+# Known good ranges to completely ignore (Google, Bing, legitimate crawlers, etc.)
+skip_ranges=(
+    "52.167" "57.141" "66.249" "85.208" "102.8" "103.197"
+    "127.0" "192.168.1" # Add your IPs here
+    # add more if needed
+)
+
 ```
 
-
-
-
 ---
+
+## 🤡 Rate-Limiting Abusers Using Unrelated IPs / Alias IPs
+
+Update `offending_ips.conf` and assign an identical trailing identifier to all of the IPs (instead of the default underscore-separated IP range values). Below, we're treating these two IPs as if they're one IP:
+
+```nginx
+~^85\.208\.    "heavily_limited_range_semrush";
+~^185\.191\.    "heavily_limited_range_semrush";
+```
+
+In this way `semrush` enjoys one window for hammering the server, instead of two.
 
 ## 📝 License
 
 Copyright © 2025 **Ikram Hawramani** [Hawramani.com](https://hawramani.com/).
 
-This project is licensed under the [MIT License](https://www.google.com/search?q=LICENSE).
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
 
 ```
 
